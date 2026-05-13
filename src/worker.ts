@@ -108,7 +108,10 @@ const plugin: PaperclipPlugin = definePlugin({
   async setup(ctx) {
     currentContext = ctx;
     const config = await loadConfig(ctx);
-    pool = new BridgePool(config.mcpCommand, config.storeBasePath);
+    pool = new BridgePool(config.mcpCommand, config.storeBasePath, {
+      logger: ctx.logger,
+    });
+    pool.installShutdownHandlers();
     await registerTools(ctx);
     ctx.logger.info("anneal-memory plugin setup complete", {
       mcpCommand: config.mcpCommand,
