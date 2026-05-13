@@ -450,7 +450,13 @@ expectations accordingly).
 
 **[paperclipai/paperclip#5916](https://github.com/paperclipai/paperclip/issues/5916)** — filed May 13, 2026. Title: "Plugin tool execution always 502s — registerPluginTools drops the plugin UUID dbId". Finding #1 with the patch diff inlined as the primary body; Findings #2 and #3 mentioned at the bottom as separate concerns the maintainers can split out if they prefer.
 
-Findings #4 and #5 are documented here for separate-issue filing if maintainers prefer; both have clear repro steps and were caught during real load-testing not synthetic exploration.
+**[paperclipai/paperclip#5932](https://github.com/paperclipai/paperclip/issues/5932)** — filed May 13, 2026. Title: "`acpx_local` adapter ships without `claude-agent-acp` runtime dep — agents fail with exit=1 before initialize". Finding #4 as standalone issue. Reproduction repro and three suggested fixes inlined.
+
+**[paperclipai/paperclip#5933](https://github.com/paperclipai/paperclip/issues/5933)** — filed May 13, 2026. Title: "`PAPERCLIP_PROJECT_ID` env var sometimes empty/unset; plugin `runContext` validation rejects calls relying on it". Finding #5 as standalone issue. Includes the second reproduction caught on May 13 during the carry-forward verification run.
+
+**[paperclipai/paperclip#5935](https://github.com/paperclipai/paperclip/issues/5935)** — filed May 13, 2026. Title: "Heartbeat wake fires on agent's own issue comments — sub-minute self-perpetuating wake-loop". Finding #7 (new — caught later May 13 during the sustained heartbeat test). Severity high; affects any sustained agent workflow that includes comment-posting on the assigned issue. Agent self-detected the dynamic in real time and recorded it across three heartbeat observation episodes.
+
+**[paperclipai/paperclip#5937](https://github.com/paperclipai/paperclip/issues/5937)** — filed May 13, 2026. Title: "Auto-recovery flow uses sibling-issue creation to override issue-level operator protocol". Finding #8 (new — caught in the same sustained-load testing session as #5935). Severity high; affects any operator workflow with explicit stage gates. Agent protocol adherence is per-run-context, not cross-run, so recovery cascades creating sibling issues can override the source issue's stated protocol via a side-channel. Full close-attack trace included with timestamps.
 
 Repository: <https://github.com/paperclipai/paperclip>
 

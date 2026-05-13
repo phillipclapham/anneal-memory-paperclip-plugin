@@ -2,7 +2,7 @@
 
 First-class four-layer memory for [Paperclip](https://github.com/paperclipai/paperclip) agents, wrapping the [anneal-memory](https://github.com/phillipclapham/anneal-memory) Python MCP server.
 
-**Status:** v0.0.1 — full stack end-to-end validated against Paperclip 2026.512.0 on May 13, 2026. Working but requires an upstream Paperclip patch + a one-time agent-instructions edit. See [Known Limitations](#known-limitations) before installing.
+**Status:** v0.0.1 — full stack end-to-end validated against Paperclip 2026.512.0 on May 13, 2026 across 4 named load tests (B1/B2/B3/B1.5) plus an ANN-13 v2 4-wrap sustained-load sequence demonstrating immune-system demotion and closed-loop learning in production (see [In-production validation](#in-production-validation)). 5 upstream Paperclip findings filed day-one (see [Filed upstream](#filed-upstream)). Working but requires an upstream Paperclip patch + a one-time agent-instructions edit. See [Known Limitations](#known-limitations) before installing.
 
 ---
 
@@ -46,6 +46,44 @@ Paperclip's `claude_local` adapter does NOT inject plugin tools into Claude Code
 - **Immune system** — citation-gaming detection + active demotion of ungrounded graduations
 - **Per-agent isolation** — each Paperclip agent gets its own SQLite store at `<storeBasePath>/<agentId>/memory.db`
 
+## In-production validation
+
+The architectural claim is that the four-layer memory + immune system
+produces **compression-with-intelligence** — memory that gets smarter
+(not just longer) as evidence accumulates. The ANN-13 v2 4-wrap sequence
+on May 13, 2026 demonstrates this in production runtime:
+
+| Wrap | Continuity size | What happened |
+|---|---|---|
+| #2 | 6,373 chars | New patterns surfaced from heartbeat #1 evidence. |
+| **#3** | **5,804 chars** | **Immune system demoted a bad self-citation. Continuity SHRANK 569 chars.** Agent re-examined a pattern it had graduated earlier, ruled the supporting evidence didn't hold, removed the graduation. |
+| **#4** | 7,027 chars | **Closed-loop learning.** Agent codified the wrap-#3 demotion lesson as a new pattern AND applied it on the next graduation evaluation. Memory got smarter because it corrected itself. |
+
+This is the architecturally distinctive behavior versus flat-retrieval
+memory substrates: graduation + active demotion + structurally-enforced
+compression produce process evolution, not bloat-instead-of-smart.
+
+Three additional named load tests passed earlier the same day:
+
+- **B1 — single-agent wrap cycle (Claude C-level): PASS.** Full
+  wrap completed autonomously with 4-section FlowScript continuity;
+  agent surfaced a novel runtime quirk (Finding #5) as a pattern
+  unprompted.
+- **B2 — multi-agent C-level coordination: PASS.** Parallel CMO + CTO
+  agents; each SQLite store contained only its own episodes. Direct
+  refutation of the global-continuity-fills-too-fast failure mode.
+- **B3 — Codex C-level wrap cognition: PASS-WITH-NUANCE.** Codex
+  executed valid wrap-class cognition (4 min vs Claude's 1 min, more
+  methodical, one tombstone self-correction). Refutes strong "Codex
+  can't run wraps" claim; texture difference is real, mechanical
+  capability holds.
+- **B1.5 — cold-session memory carry-forward: PASS.** Agent on a
+  cold-context session read its own continuity, refused to redo B1,
+  proposed B2-style continuity-merge as next test, surfaced a novel
+  meta-pattern (write-path vs read-path test taxonomy).
+
+Full receipt in [CHANGELOG.md](./CHANGELOG.md).
+
 ## Architecture
 
 ```
@@ -79,22 +117,123 @@ All six anneal-memory MCP tools surface as Paperclip agent tools under the `anne
 - Paperclip v2026.512.0 or later (with [upstream patch](./UPSTREAM_PAPERCLIP_FINDINGS.md) applied)
 - `anneal-memory` Python MCP server installed and reachable via PATH
 
-## Install (planned — once Paperclip upstream lands the fix)
+## Quickstart
+
+Five steps to a working install on Paperclip 2026.512.0. Will collapse
+to a one-liner once Paperclip ships the [#5916](https://github.com/paperclipai/paperclip/issues/5916)
+patch upstream.
+
+### 1. Install `anneal-memory` (Python MCP server) globally
+
+The plugin spawns this as a child process per agent. Must be on PATH.
 
 ```bash
-paperclipai plugin install @anneal-memory/paperclip-plugin
+uv tool install anneal-memory
+# Verify:
+which anneal-memory && anneal-memory --version
 ```
 
-Or from a local checkout during development:
+Alternative paths (`pipx`, virtualenv) work too; override via the plugin's
+`mcpCommand` config field.
+
+### 2. Apply the upstream #5916 patch to your Paperclip server
+
+Required until the patch lands upstream. Two-line fix in the compiled JS
+of your installed `@paperclipai/server` package:
+
+```diff
+--- a/dist/services/plugin-tool-dispatcher.js  (~line 210)
++++ b/dist/services/plugin-tool-dispatcher.js
+-    registerPluginTools(pluginId, manifest) {
+-        registry.registerPlugin(pluginId, manifest);
++    registerPluginTools(pluginId, manifest, pluginDbId) {
++        registry.registerPlugin(pluginId, manifest, pluginDbId);
+     },
+
+--- a/dist/services/plugin-loader.js  (~line 1151)
++++ b/dist/services/plugin-loader.js
+-                toolDispatcher.registerPluginTools(pluginKey, manifest);
++                toolDispatcher.registerPluginTools(pluginKey, manifest, pluginId);
+```
+
+The `pluginId` variable is already in scope at the call site. No new
+lookups or async paths required.
+
+Full reproduction steps + line-number context in
+[#5916](https://github.com/paperclipai/paperclip/issues/5916) and
+[UPSTREAM_PAPERCLIP_FINDINGS.md](./UPSTREAM_PAPERCLIP_FINDINGS.md).
+
+Restart your Paperclip server after applying the patch.
+
+### 3. Install the plugin
+
+From a local checkout (the canonical path while Paperclip's published
+install command awaits #5916):
+
 ```bash
 git clone https://github.com/phillipclapham/anneal-memory-paperclip-plugin
 cd anneal-memory-paperclip-plugin
 npm install && npm run build
-# Then from your Paperclip instance:
-/usr/bin/curl -X POST http://127.0.0.1:3100/api/plugins/install \
+
+# From your Paperclip instance host:
+curl -X POST http://127.0.0.1:3100/api/plugins/install \
   -H "Content-Type: application/json" \
   -d '{"packageName":"/absolute/path/to/anneal-memory-paperclip-plugin","isLocalPath":true}'
 ```
+
+Verify the plugin loaded:
+
+```bash
+curl http://127.0.0.1:3100/api/plugins
+# Look for: status: "ready", lastError: null, tools: 6
+```
+
+### 4. Teach your agent about the plugin tools
+
+Paperclip's `claude_local` adapter does not auto-discover plugin tools in
+v2026.512.0. Drop the `TOOLS.md` template into your agent's instructions
+bundle:
+
+```bash
+cp TOOLS.md ~/.paperclip/agents/<your-agent>/instructions/TOOLS.md
+```
+
+The template is the agent's instructions verbatim — operator-facing
+intro at the top, agent-bound content below the divider. No editing
+required.
+
+### 5. Verify end-to-end
+
+Have your agent call `anneal-memory:status`. Expected response shape:
+
+```json
+{
+  "episode_count": 0,
+  "continuity_chars": 0,
+  "wrap_state": "ready",
+  "hebbian_density": 0,
+  "audit_chain_ok": true
+}
+```
+
+If you see this, the full stack — agent → Paperclip dispatcher → plugin
+worker → MCP child → SQLite store — is working. Memory health check
+passed. Begin recording episodes; call `prepare_wrap` + `save_continuity`
+at session boundaries to graduate patterns.
+
+---
+
+**Future state** (once Paperclip ships #5916 upstream): steps 2 and 3
+collapse to a single line.
+
+```bash
+uv tool install anneal-memory
+paperclipai plugin install @anneal-memory/paperclip-plugin
+cp TOOLS.md ~/.paperclip/agents/<your-agent>/instructions/TOOLS.md
+```
+
+Step 4 may also become unnecessary if Paperclip adds plugin-tool
+auto-discovery for `claude_local`.
 
 ## Config
 
@@ -106,118 +245,91 @@ npm install && npm run build
 
 ## Teaching Your Agent About anneal-memory
 
-In Paperclip 2026.512.0, plugin tools are exposed on `/api/plugins/tools/execute` but `claude_local` adapter does not inject them into Claude Code's tool set. The agent must be told the tools exist + how to call them. Paste this into your agent's `instructions/TOOLS.md` once:
+In Paperclip 2026.512.0, plugin tools are exposed on
+`/api/plugins/tools/execute` but the `claude_local` adapter does not
+inject them into Claude Code's tool set. The agent must be told the
+tools exist and how to call them.
 
-````markdown
-# Memory Tools (anneal-memory plugin)
+Drop-in template lives at **[`TOOLS.md`](./TOOLS.md)**. Copy into your
+agent's instructions bundle:
 
-This agent has access to first-class persistent memory via the
-`anneal-memory` Paperclip plugin. The Paperclip runtime provides
-environment variables for invoking these tools:
-
-- `PAPERCLIP_API_URL` — Paperclip server URL
-- `PAPERCLIP_AGENT_ID` — your agent UUID
-- `PAPERCLIP_COMPANY_ID` — your company UUID
-- `PAPERCLIP_PROJECT_ID` — current project UUID
-- `PAPERCLIP_RUN_ID` — current run UUID
-
-To invoke a plugin tool, POST to `$PAPERCLIP_API_URL/api/plugins/tools/execute`
-with body shape:
-```json
-{
-  "tool": "anneal-memory:<tool_name>",
-  "parameters": { ... tool-specific args ... },
-  "runContext": {
-    "agentId": "$PAPERCLIP_AGENT_ID",
-    "runId": "$PAPERCLIP_RUN_ID",
-    "companyId": "$PAPERCLIP_COMPANY_ID",
-    "projectId": "$PAPERCLIP_PROJECT_ID"
-  }
-}
+```bash
+cp TOOLS.md ~/.paperclip/agents/<your-agent>/instructions/TOOLS.md
 ```
 
-## Available tools
+The template is the agent's instructions verbatim — operator-facing
+intro at the top, agent-bound content below the divider. No editing
+required.
 
-- **anneal-memory:record** — record an episode. Required: `content` (string),
-  `episode_type` (one of: observation, decision, tension, question, outcome, context).
-  Optional: `source` (string), `metadata` (object).
-- **anneal-memory:recall** — query episodes. All optional: `since` (ISO 8601),
-  `until` (ISO 8601), `episode_type`, `source`, `keyword`, `limit` (default 100), `offset`.
-- **anneal-memory:prepare_wrap** — get compression package at session boundary.
-  Returns a `wrap_token` (32-char hex) you MUST pass to save_continuity.
-  Optional: `max_chars` (default 20000), `staleness_days` (default 7).
-- **anneal-memory:save_continuity** — save compressed continuity.
-  Required: `text` (markdown with `## State / ## Patterns / ## Decisions / ## Context` sections).
-  Optional: `wrap_token` (from prepare_wrap), `affective_state` ({ tag, intensity }).
-- **anneal-memory:delete_episode** — delete by id. Required: `episode_id`.
-- **anneal-memory:status** — health metrics. No args.
-
-## When to use these tools
-
-- Record decisions, tensions, observations as they happen during work.
-- Recall prior episodes before making related decisions.
-- At session end (long-running tasks, end of run): call prepare_wrap,
-  compose a compressed continuity, save_continuity. This persists
-  learned patterns across heartbeats.
-````
-
-(This manual injection step will likely be unnecessary in future Paperclip
-versions once the project addresses plugin-tool auto-discovery for the
-`claude_local` adapter.)
+(This manual injection step will likely be unnecessary in future
+Paperclip versions once the project addresses plugin-tool
+auto-discovery for the `claude_local` adapter.)
 
 ## Known Limitations
 
-### Methodology-under-Paperclip-runtime is not yet validated at load
+### Methodology-under-Paperclip-runtime: validated single-cycle, sustained-load open
 
-**Read this carefully before relying on the plugin in production.** v0.0.1
-mechanically validates that the anneal-memory storage layer works as a
-Paperclip plugin: the install/register/dispatch/execute path is clean,
-per-agent SQLite isolation is verified, audit chain holds. What v0.0.1
-does NOT yet validate is whether the FLOW methodology layer (wrap
-discipline, pattern graduation, immune system, consultation synthesis)
-executes correctly when run autonomously by Paperclip C-level agents
-under load.
+**Read this carefully before relying on the plugin in production.** Today's
+load testing (May 13, 2026) updated the validation status:
 
-The CLI / human-AI partnership / cognitive_loop autonomous proofs that
-the underlying methodology works all run OUTSIDE Paperclip's runtime
-model. Paperclip's runtime introduces its own semantics — heartbeat
-cadence, agent restart model, per-heartbeat tool budgets, inter-agent
-coordination via issues/comments, workspace state authority — and we
-have not yet seen whether these interact cleanly with FLOW execution at
-sustained operational load.
+**What v0.0.1 has validated** under Paperclip 2026.512.0 runtime:
 
-Specific Paperclip semantic blockers worth watching for:
+- Storage layer — install/register/dispatch/execute path clean,
+  per-agent SQLite isolation verified, audit chain holds.
+- **Wrap discipline + pattern graduation** — B1 single-agent + B3 Codex
+  wrap cycles both completed with structurally-correct 4-section
+  FlowScript continuity; graduation criteria fired correctly.
+- **Immune system in production** — ANN-13 v2 wrap #3 demoted a bad
+  self-citation autonomously; continuity SHRANK by 569 chars (see
+  [In-production validation](#in-production-validation)).
+- **Closed-loop learning** — ANN-13 v2 wrap #4 codified the demotion
+  lesson as a pattern and applied it on the next graduation.
+- **Multi-agent autonomous coordination** — B2 CMO + CTO parallel
+  agents maintained per-store isolation under Paperclip's multi-agent
+  coordination semantics.
+- **Cross-substrate wrap cognition** — B3 confirmed Codex can run
+  wrap-class cognition on the plugin contract (texture difference vs.
+  Claude exists; mechanical capability holds).
+- **Cold-session carry-forward** — B1.5 agent on a fresh context read
+  its own continuity and refused to redo prior work; wrap-thrash
+  disconfirmed at session-cold boundary.
 
-- **Wrap-thrash from heartbeat-driven wrap cadence.** If wraps fire on
-  every heartbeat, compression material is too thin → graduation criteria
-  don't fire → continuity drifts into noise. FLOW wraps assume session
-  boundaries with meaningful work between them.
-- **Mid-wrap agent restart.** A restart between `prepare_wrap`'s
-  `wrap_token` mint and `save_continuity` invalidates the token and
-  loses wrap material. Storage-layer 2PC handles partial commits; doesn't
-  help if the runtime aborts cognitive work mid-flight.
-- **Tool budget exhaustion mid-wrap.** A real wrap is many tool calls
-  (recall context + prepare_wrap + intermediate compression + save). If
-  Paperclip caps tool calls per heartbeat below wrap-cost, wraps cannot
-  complete in one heartbeat → wrap-shaped output without wrap meaning.
-- **Double-tracking drift.** Paperclip tracks coordination via issues/
-  comments; anneal-memory tracks via episodes. No canonical correspondence
-  between the two yet. Drift risk over time.
-- **Workspace state authority conflict.** Paperclip's `project_workspaces`
-  and the plugin's per-agent data dir are two filesystem authorities for
+**What v0.0.1 does NOT yet validate:** sustained operational load over
+days and weeks. Heartbeat cadence over many cycles, day-over-day
+continuity carry-forward at production scale, multi-week pattern
+accumulation, multi-tenant coordination at scale. Single-cycle
+methodology execution under Paperclip's runtime now has empirical
+receipts; sustained-load is the remaining hypothesis.
+
+Specific Paperclip semantic blockers — current status:
+
+- **Wrap-thrash from heartbeat-driven wrap cadence.** DISCONFIRMED in
+  single-cycle scope (B1 + B1.5). Open at sustained-load scope.
+- **Mid-wrap agent restart.** Hypothetical — storage-layer 2PC handles
+  partial commits; runtime-abort behavior in production not tested.
+- **Tool budget exhaustion mid-wrap.** DISCONFIRMED in single-cycle
+  scope; B1/B2/B3 wraps all completed within heartbeat budgets at
+  observed tool-call counts.
+- **Double-tracking drift.** OPEN. Paperclip tracks coordination via
+  issues/comments; plugin tracks via episodes. Canonical correspondence
+  still ad hoc.
+- **Workspace state authority conflict.** OPEN. `project_workspaces`
+  and per-agent plugin data dir are two filesystem authorities for
   "agent state." Long-run drift potential.
-- **Model substrate axis.** Codex / Gemini cannot reliably execute
-  wrap-class cognition even on a clean memory backend. Plugin upgrades
-  the memory axis only — operator MUST assign Claude Sonnet or Opus to
-  the C-level role(s) responsible for wraps. The plugin enforces nothing
-  about this.
+- **Model substrate axis.** CONFIRMED real (and orthogonal to the plugin).
+  Codex executes mechanical wrap cognition but with detectable texture
+  difference vs. Claude (more methodical, less novel-pattern surfacing).
+  Operator should assign Claude Sonnet or Opus to wrap-executing C-level
+  roles; the plugin enforces nothing about this.
 
-**Position to hold publicly:** the plugin is mechanical infrastructure
-validated. Whether methodology survives Paperclip runtime at load is a
-hypothesis. The first operator to deploy under load is the validation
-gate. If you are that operator and surface specific failure modes,
-please open an issue with reproduction steps — that data IS the v0.1
-spec.
+**Position to hold publicly:** plugin is mechanical infrastructure
+validated AND single-cycle methodology execution under Paperclip
+runtime is validated, including immune system + closed-loop learning
+in production. Sustained-load behavior over days/weeks remains the
+open empirical question. The first operator to deploy at production
+scale is the v0.1 validation gate. If you surface specific failure
+modes, please open an issue with reproduction steps — that data IS
+the v0.1 spec.
 
 ### Other v0.0.1 boundaries (less critical, tracked for v0.1)
 
@@ -234,6 +346,35 @@ spec.
    the auto-restart mechanism is in place (default 3 attempts, exponential
    backoff from 1s) but tool calls that happen during the restart window
    will fail. v0.1 will queue calls during recovery windows.
+
+## Filed upstream
+
+Five Paperclip findings surfaced during plugin development and load
+testing, all filed against [paperclipai/paperclip](https://github.com/paperclipai/paperclip):
+
+- **[#5916](https://github.com/paperclipai/paperclip/issues/5916)** —
+  Plugin tool execution always 502s because `registerPluginTools`
+  drops the plugin's UUID `dbId`. Two-line patch inlined in the issue.
+  **Required** for this plugin to work end-to-end. Detailed reproduction
+  steps + offline reference in [UPSTREAM_PAPERCLIP_FINDINGS.md](./UPSTREAM_PAPERCLIP_FINDINGS.md).
+- **[#5932](https://github.com/paperclipai/paperclip/issues/5932)** —
+  `acpx_local` adapter ships without the `claude-agent-acp` runtime
+  dependency. Workaround: use `claude_local` adapter.
+- **[#5933](https://github.com/paperclipai/paperclip/issues/5933)** —
+  `PAPERCLIP_PROJECT_ID` env var sometimes empty/unset. Agent
+  self-recovers via cwd-path parsing.
+- **[#5935](https://github.com/paperclipai/paperclip/issues/5935)** —
+  Heartbeat wake fires on agent's own issue comments, producing a
+  sub-minute self-perpetuating wake-loop. Workaround: agents record
+  state to plugin memory only, operators read state out-of-band, no
+  agent self-comments on assigned issues.
+- **[#5937](https://github.com/paperclipai/paperclip/issues/5937)** —
+  Auto-recovery flow creates sibling issues whose run contexts override
+  issue-level operator protocol (e.g., "operator owns close" rules).
+
+Full triage notes + load-test context in
+[UPSTREAM_PAPERCLIP_FINDINGS.md](./UPSTREAM_PAPERCLIP_FINDINGS.md) and
+[CHANGELOG.md](./CHANGELOG.md).
 
 ## Development
 
