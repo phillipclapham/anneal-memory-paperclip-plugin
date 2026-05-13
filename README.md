@@ -167,9 +167,59 @@ versions once the project addresses plugin-tool auto-discovery for the
 
 ## Known Limitations
 
-These are honest v0.0.1 boundaries — none of them block real use once the
-upstream Paperclip patch is applied and the instructions snippet above is
-pasted into the agent's TOOLS.md. Tracked for v0.1:
+### Methodology-under-Paperclip-runtime is not yet validated at load
+
+**Read this carefully before relying on the plugin in production.** v0.0.1
+mechanically validates that the anneal-memory storage layer works as a
+Paperclip plugin: the install/register/dispatch/execute path is clean,
+per-agent SQLite isolation is verified, audit chain holds. What v0.0.1
+does NOT yet validate is whether the FLOW methodology layer (wrap
+discipline, pattern graduation, immune system, consultation synthesis)
+executes correctly when run autonomously by Paperclip C-level agents
+under load.
+
+The CLI / human-AI partnership / cognitive_loop autonomous proofs that
+the underlying methodology works all run OUTSIDE Paperclip's runtime
+model. Paperclip's runtime introduces its own semantics — heartbeat
+cadence, agent restart model, per-heartbeat tool budgets, inter-agent
+coordination via issues/comments, workspace state authority — and we
+have not yet seen whether these interact cleanly with FLOW execution at
+sustained operational load.
+
+Specific Paperclip semantic blockers worth watching for:
+
+- **Wrap-thrash from heartbeat-driven wrap cadence.** If wraps fire on
+  every heartbeat, compression material is too thin → graduation criteria
+  don't fire → continuity drifts into noise. FLOW wraps assume session
+  boundaries with meaningful work between them.
+- **Mid-wrap agent restart.** A restart between `prepare_wrap`'s
+  `wrap_token` mint and `save_continuity` invalidates the token and
+  loses wrap material. Storage-layer 2PC handles partial commits; doesn't
+  help if the runtime aborts cognitive work mid-flight.
+- **Tool budget exhaustion mid-wrap.** A real wrap is many tool calls
+  (recall context + prepare_wrap + intermediate compression + save). If
+  Paperclip caps tool calls per heartbeat below wrap-cost, wraps cannot
+  complete in one heartbeat → wrap-shaped output without wrap meaning.
+- **Double-tracking drift.** Paperclip tracks coordination via issues/
+  comments; anneal-memory tracks via episodes. No canonical correspondence
+  between the two yet. Drift risk over time.
+- **Workspace state authority conflict.** Paperclip's `project_workspaces`
+  and the plugin's per-agent data dir are two filesystem authorities for
+  "agent state." Long-run drift potential.
+- **Model substrate axis.** Codex / Gemini cannot reliably execute
+  wrap-class cognition even on a clean memory backend. Plugin upgrades
+  the memory axis only — operator MUST assign Claude Sonnet or Opus to
+  the C-level role(s) responsible for wraps. The plugin enforces nothing
+  about this.
+
+**Position to hold publicly:** the plugin is mechanical infrastructure
+validated. Whether methodology survives Paperclip runtime at load is a
+hypothesis. The first operator to deploy under load is the validation
+gate. If you are that operator and surface specific failure modes,
+please open an issue with reproduction steps — that data IS the v0.1
+spec.
+
+### Other v0.0.1 boundaries (less critical, tracked for v0.1)
 
 1. **`autoRecordEvents` config flag is declared but not yet wired** — when
    set, no `onEvent` handler is currently registered. Manifest field will be
