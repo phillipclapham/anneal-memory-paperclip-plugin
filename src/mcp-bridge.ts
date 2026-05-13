@@ -25,6 +25,28 @@ interface PendingCall {
 }
 
 /**
+ * Pull text from an MCP tool error result. Result shape:
+ * `{content: [{type: "text", text: "..."}, ...], isError: true}`.
+ */
+function extractErrorText(result: unknown): string {
+  if (!result || typeof result !== "object") return "";
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const entry of content) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      (entry as { type?: unknown }).type === "text" &&
+      typeof (entry as { text?: unknown }).text === "string"
+    ) {
+      parts.push((entry as { text: string }).text);
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
  * Wraps a single anneal-memory MCP server subprocess. One bridge per scope
  * (typically per Paperclip agent). Owns the child process lifecycle and
  * JSON-RPC dispatch.
@@ -60,9 +82,11 @@ export class McpBridge {
   private async doStart(): Promise<void> {
     await mkdir(path.dirname(this.dbPath), { recursive: true });
 
+    // anneal-memory CLI structure: top-level args (--db, --project-name) BEFORE
+    // the `serve` subcommand. Verified May 13, 2026 against v0.3.0.
     const child = spawn(
       this.command,
-      ["--db", this.dbPath, "--project-name", this.projectName],
+      ["--db", this.dbPath, "--project-name", this.projectName, "serve"],
       { stdio: ["pipe", "pipe", "pipe"] },
     );
 
@@ -106,10 +130,21 @@ export class McpBridge {
   /**
    * Invoke an MCP tool. Translates Paperclip-level tool calls into MCP
    * `tools/call` JSON-RPC dispatches.
+   *
+   * Per MCP 2024-11-05 spec, tool-level errors arrive as
+   * `{content: [...], isError: true}` inside a successful JSON-RPC result —
+   * distinct from protocol-level errors. We convert tool-errors into
+   * Promise rejections so callers get a uniform error surface regardless
+   * of which layer failed.
    */
   async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
     await this.start();
-    return this.sendRequest("tools/call", { name, arguments: args });
+    const result = await this.sendRequest("tools/call", { name, arguments: args });
+    if (result && typeof result === "object" && (result as { isError?: unknown }).isError === true) {
+      const text = extractErrorText(result);
+      throw new Error(text || `MCP tool '${name}' returned isError=true with no text content`);
+    }
+    return result;
   }
 
   /**
