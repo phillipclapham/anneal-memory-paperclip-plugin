@@ -1,0 +1,52 @@
+{
+  "name": "@anneal-memory/paperclip-plugin",
+  "version": "0.0.1",
+  "description": "anneal-memory as a Paperclip plugin — first-class four-layer memory (episodic + continuity + Hebbian + limbic) with immune system. Wraps the anneal-memory Python MCP server as a per-agent subprocess.",
+  "type": "module",
+  "private": false,
+  "author": "Phill Clapham <phill@claphamdigital.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phillipclapham/anneal-memory-paperclip-plugin.git"
+  },
+  "homepage": "https://github.com/phillipclapham/anneal-memory-paperclip-plugin",
+  "keywords": [
+    "paperclip",
+    "paperclip-plugin",
+    "anneal-memory",
+    "ai-agents",
+    "memory",
+    "mcp"
+  ],
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "paperclipPlugin": {
+    "manifest": "./dist/manifest.js",
+    "worker": "./dist/worker.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@paperclipai/plugin-sdk": "2026.512.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "typescript": "^5.7.3"
+  }
+}
