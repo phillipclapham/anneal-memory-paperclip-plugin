@@ -10,11 +10,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned for v0.1.0
 
 - `autoRecordEvents` config flag wired (currently declared but no `onEvent` handler).
-- Standalone `TOOLS.md` template at repo root (extracted from README inline section).
 - `validateConfig` RPC implementation — bad config surfaces at plugin install, not first tool call.
 - Per-agent MCP responsiveness probe in `onHealth` (currently shallow — returns "ok" whenever bridge pool exists).
 - Retry/queue policy for tool calls landing during MCP child auto-restart window.
 - Re-validation against Paperclip releases beyond 2026.512.0.
+
+## [0.0.2] - 2026-05-13
+
+Documentation polish release. **No code changes** — same v0.0.1 plugin
+mechanically. Substantially expanded discovery surface and
+operator-facing documentation, plus standalone agent-instructions
+template.
+
+### Added
+
+- `CHANGELOG.md` — this file (Keep-a-Changelog format), with v0.0.1
+  retrospective + load-test receipts + filed-upstream cross-references.
+- `TOOLS.md` — standalone drop-in agent instructions template, extracted
+  from the README inline section. Operators can copy directly into their
+  Paperclip agent's instructions bundle without editing.
+
+### Changed
+
+- `README.md` — substantially expanded discovery surface:
+  - Status line now links empirical receipts + 5 upstream Paperclip findings filed day-one.
+  - New "In-production validation" section with the ANN-13 v2 4-wrap receipt table demonstrating immune-system demotion (continuity shrunk 569 chars) + closed-loop learning (agent codified demotion lesson as pattern and applied on next graduation).
+  - "Install (planned)" section replaced with comprehensive 5-step **Quickstart** including the #5916 patch diff inline. Plugin works end-to-end with current Paperclip 2026.512.0 + the manual patch documented in Quickstart Step 2.
+  - "Teaching Your Agent" section references the new standalone `TOOLS.md` instead of inlining the template.
+  - New "Filed upstream" section listing all 5 upstream findings filed against `paperclipai/paperclip` (#5916, #5932, #5933, #5935, #5937) with one-line each.
+  - "Methodology-under-Paperclip-runtime" Known Limitations section rewritten to reflect today's empirical wins. Single-cycle validation: graduation + immune system + closed-loop learning all confirmed in production via ANN-13 v2 sequence. Sustained-load behavior over days/weeks remains the open empirical question; first operator to deploy at production scale is the v0.1 validation gate.
+- `UPSTREAM_PAPERCLIP_FINDINGS.md` — added cross-references for `#5932`/`#5933`/`#5935`/`#5937` (previously uncommitted from when they were filed earlier May 13).
+
+### Status
+
+Plugin remains the same v0.0.1 code at the mechanical layer — only documentation surface evolved. Operators upgrading from v0.0.1 → v0.0.2 receive no behavioral changes; the upgrade is for the discovery surface, agent-instruction template, and complete release-notes documentation.
 
 ## [0.0.1] - 2026-05-13
 
@@ -150,5 +179,6 @@ operator to deploy under sustained load is the v0.1 validation gate. If
 that's you and you surface specific failure modes, please open an issue
 with reproduction steps.
 
-[Unreleased]: https://github.com/phillipclapham/anneal-memory-paperclip-plugin/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/phillipclapham/anneal-memory-paperclip-plugin/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/phillipclapham/anneal-memory-paperclip-plugin/releases/tag/v0.0.2
 [0.0.1]: https://github.com/phillipclapham/anneal-memory-paperclip-plugin/releases/tag/v0.0.1

@@ -1,6 +1,6 @@
 {
   "name": "@anneal-memory/paperclip-plugin",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "anneal-memory as a Paperclip plugin — first-class four-layer memory (episodic + continuity + Hebbian + limbic) with immune system. Wraps the anneal-memory Python MCP server as a per-agent subprocess.",
   "type": "module",
   "private": false,
