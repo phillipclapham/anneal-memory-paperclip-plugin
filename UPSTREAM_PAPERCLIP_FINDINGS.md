@@ -1,12 +1,49 @@
 # Upstream Paperclip Findings — May 13, 2026
 
-Three findings surfaced during plugin development against Paperclip
-2026.512.0. One is a real bug with a two-line patch. The other two are
-architectural/UX gaps. All three were validated end-to-end and reproduced.
+Five findings surfaced during plugin development + load-testing against Paperclip
+2026.512.0. Findings #1, #4, and #5 are real bugs/gaps with clear repro steps.
+Findings #2 and #3 are architectural/UX gaps. All five were validated end-to-end
+and reproduced.
 
-This document is structured so it can be lifted directly into a GitHub
+This document is structured so each finding can be lifted directly into a GitHub
 issue against [paperclipai/paperclip](https://github.com/paperclipai/paperclip)
-without further synthesis.
+without further synthesis. Finding #1 is already filed as
+[paperclipai/paperclip#5916](https://github.com/paperclipai/paperclip/issues/5916).
+
+## Load-test results (after Finding #1 patch applied)
+
+The findings below were generated while running three load tests against a
+local Paperclip 2026.512.0 instance with the Finding #1 two-line patch applied.
+Each test validated a specific hypothesis about whether FLOW methodology can
+execute under Paperclip's autonomous runtime:
+
+- **B1 — single-agent wrap cycle (Claude C-level)**: PASS. Agent autonomously
+  executed full wrap cycle (status → record × 3 → prepare_wrap → save_continuity
+  → status) with structurally-correct 4-section FlowScript continuity, evidence
+  citation, and even surfaced a novel runtime quirk (Finding #5) as a pattern.
+  Heartbeat continuation did NOT trigger wrap-thrash — wrap-cadence hypothesis
+  disconfirmed for this scenario.
+
+- **B2 — multi-agent C-level coordination**: PASS. CMO + CTO Claude agents ran
+  in parallel; each agent's SQLite store contained only its own episodes. Zero
+  cross-contamination. BridgePool per-agent routing works under Paperclip's
+  multi-agent coordination semantics. (Initial attempt with `acpx_local`
+  adapter failed and surfaced Finding #4.)
+
+- **B3 — Codex C-level wrap cognition**: PASS-WITH-NUANCE. Codex CAN execute
+  wrap-class cognition end-to-end on the plugin contract — valid FlowScript
+  continuity, evidence citation, even used a graduation marker. Took 4 minutes
+  vs Claude's 1 minute, with more methodical exploration and one self-correction
+  (tombstone). Cognitive texture difference vs Claude exists (Claude surfaced
+  a novel runtime pattern; Codex executed exactly what was asked) but
+  refutes the strong "Codex can't run wraps" claim.
+
+**Conclusion**: Methodology executes under Paperclip runtime when the Finding #1
+patch is applied. Wrap-thrash, mid-wrap restart, tool budget exhaustion, and
+cross-store leakage hypotheses all disconfirmed in single-cycle scope.
+Sustained-load behavior (heartbeat cadence over many cycles, day-over-day
+continuity carry-forward, multi-week pattern accumulation) requires longer
+testing than this session.
 
 ---
 
@@ -297,9 +334,123 @@ For local plugin iteration, prefer uninstall + reinstall over disable + enable.
 
 ---
 
+---
+
+## Finding #4 — `acpx_local` adapter is missing the `claude-agent-acp` binary; agents created with `adapterType: "acpx_local"` fail every run with ACP startup error
+
+### Severity
+
+Medium. Operators following the docs/code suggestion of `acpx_local` (which
+appears as an adapter option in the API) create agents that cannot run at all.
+The fallback is to use `claude_local` instead — but new operators (Tony, my own
+test agents) won't know that without hitting the failure first.
+
+### Symptom
+
+Create an agent via `POST /api/companies/<id>/agents` with
+`{"adapterType": "acpx_local", "adapterConfig": {}}`. Default adapterConfig
+gets populated by Paperclip with `{"mode": "persistent", "agent": "claude", ...}`.
+Assign an issue to the agent. The run starts, the wrapper script executes,
+and exits with code 1 before initialize completes:
+
+```
+{"type":"acpx.error","message":"ACP agent exited before initialize completed (exit=1, signal=null): /Users/.../wrappers/claude-cda420dc81fed546.sh: line 9: /Users/.../node_modules/@paperclipai/adapter-acpx-local/node_modules/.bin/claude-agent-acp"}
+```
+
+The wrapper script's final line execs `claude-agent-acp` but the binary
+doesn't exist at that path. The npx-installed Paperclip ships
+`@paperclipai/adapter-acpx-local` but not its `claude-agent-acp` dependency.
+
+Paperclip then auto-creates a `stranded_assigned_issue` recovery issue that
+blocks the original — operators have to discover the binary-missing failure
+through chains of blocked issues.
+
+### Root cause (suspected)
+
+Either: (a) `@paperclipai/adapter-acpx-local/package.json` doesn't declare
+`claude-agent-acp` as a runtime dependency, or (b) npx-flavor installs of
+Paperclip skip optional/peer dependencies that the adapter needs at runtime.
+
+### Suggested fix
+
+Either: (a) bundle `claude-agent-acp` as a hard dep of `@paperclipai/adapter-acpx-local`,
+(b) emit a clear startup-time check that surfaces the missing binary BEFORE
+the first run fails, or (c) document `claude_local` as the recommended default
+and `acpx_local` as requiring additional setup.
+
+### Workaround
+
+Use `adapterType: "claude_local"` instead. Confirmed working in the same
+Paperclip instance.
+
+### Reproduction
+
+1. Paperclip 2026.512.0 installed via `npx paperclipai onboard ...`
+2. `POST /api/companies/<id>/agents` with `{"name": "X", "adapterType": "acpx_local"}`
+3. Assign any issue
+4. Observe: wrapper script ENOENT on `claude-agent-acp`, run exits 1, recovery
+   issue auto-created.
+
+---
+
+## Finding #5 — `PAPERCLIP_PROJECT_ID` env var is sometimes empty/unset; plugin runtime context validation rejects calls when relying on it
+
+### Severity
+
+Low-medium. Affects every plugin that needs `projectId` in `runContext`. Agents
+that source `projectId` solely from `$PAPERCLIP_PROJECT_ID` will hit a runtime
+error on their first tool call.
+
+### Symptom
+
+A Claude C-level agent running an issue invoked `anneal-memory:status` via
+the `/api/plugins/tools/execute` endpoint, passing `runContext` constructed
+from environment variables:
+
+```bash
+curl -X POST "$PAPERCLIP_API_URL/api/plugins/tools/execute" \
+  -H "Content-Type: application/json" \
+  -d "{...,\"runContext\":{\"agentId\":\"$PAPERCLIP_AGENT_ID\",\"runId\":\"$PAPERCLIP_RUN_ID\",\"companyId\":\"$PAPERCLIP_COMPANY_ID\",\"projectId\":\"$PAPERCLIP_PROJECT_ID\"}}"
+```
+
+The call failed because `$PAPERCLIP_PROJECT_ID` was empty/unset in the
+agent's run environment. The agent self-recovered by sourcing `projectId`
+from the working-directory path
+(`.paperclip-anneal-test/instances/default/projects/<companyId>/<projectId>/...`)
+and recording the runtime quirk as a pattern in its own continuity.
+
+### Root cause (suspected)
+
+Either: (a) Paperclip doesn't always set `PAPERCLIP_PROJECT_ID` even when
+the run is associated with a project (e.g., the issue is project-less or
+the runtime's env-vars population logic has a gap), or (b) the env var is
+intentionally optional for cases where projectId is genuinely unset, and
+the plugin contract should either accept null/empty projectId OR document
+the cwd-derivation fallback as canonical.
+
+### Suggested fix
+
+Either: (a) ensure `PAPERCLIP_PROJECT_ID` is always set when a project context
+exists, (b) document the cwd-path-derivation fallback as the canonical agent
+pattern for plugins requiring `projectId`, or (c) relax the plugin tool route's
+`runContext` validation to allow null `projectId` (and update plugin authors'
+expectations accordingly).
+
+### Reproduction
+
+1. Apply Finding #1 patch.
+2. Install a plugin that requires `projectId` in `runContext` for `executeTool` calls.
+3. Create an issue with a `projectId` field set.
+4. Have an agent invoke a plugin tool using `$PAPERCLIP_PROJECT_ID` from env.
+5. Observe: env var is empty; tool call fails with `"runContext.projectId must be a string"`.
+
+---
+
 ## Filed upstream
 
 **[paperclipai/paperclip#5916](https://github.com/paperclipai/paperclip/issues/5916)** — filed May 13, 2026. Title: "Plugin tool execution always 502s — registerPluginTools drops the plugin UUID dbId". Finding #1 with the patch diff inlined as the primary body; Findings #2 and #3 mentioned at the bottom as separate concerns the maintainers can split out if they prefer.
+
+Findings #4 and #5 are documented here for separate-issue filing if maintainers prefer; both have clear repro steps and were caught during real load-testing not synthetic exploration.
 
 Repository: <https://github.com/paperclipai/paperclip>
 
