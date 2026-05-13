@@ -29,7 +29,7 @@ Symptom: every plugin tool call returns `Cannot execute tool "<name>" — worker
 
 Root cause: `plugin-loader.js` calls `toolDispatcher.registerPluginTools(pluginKey, manifest)` without passing the plugin's UUID dbId. The tool registry then defaults `pluginDbId` to `pluginKey` (the short manifest id). When `executeTool` checks `workerManager.isRunning(tool.pluginDbId)`, it looks up the short id in a workers map keyed by UUID → false → 502.
 
-See [UPSTREAM_PAPERCLIP_FINDINGS.md](./UPSTREAM_PAPERCLIP_FINDINGS.md) for the complete bug report, two-line patch, and reproduction steps. Until Paperclip ships a fix, this plugin requires that patch applied to the installed `@paperclipai/server` package.
+Filed upstream: **[paperclipai/paperclip#5916](https://github.com/paperclipai/paperclip/issues/5916)** — see that issue for the complete bug report, two-line patch, and reproduction steps. The same detail is also captured in [UPSTREAM_PAPERCLIP_FINDINGS.md](./UPSTREAM_PAPERCLIP_FINDINGS.md) for offline reference. Until Paperclip ships a fix, this plugin requires the patch from issue #5916 applied to the installed `@paperclipai/server` package.
 
 ### 3. Plugin tools aren't auto-discovered by `claude_local` agents
 

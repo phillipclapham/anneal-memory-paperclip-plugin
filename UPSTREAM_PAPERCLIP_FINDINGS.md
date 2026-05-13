@@ -297,13 +297,9 @@ For local plugin iteration, prefer uninstall + reinstall over disable + enable.
 
 ---
 
-## Filing the issue
+## Filed upstream
 
-Suggested issue title: **"Plugin tool execution fails after install — `registerPluginTools` drops the plugin's UUID dbId"**
-
-Include in the body: Finding #1 with the patch diff inlined. Findings
-#2 and #3 are separate concerns and may warrant separate issues if the
-maintainers want them isolated.
+**[paperclipai/paperclip#5916](https://github.com/paperclipai/paperclip/issues/5916)** — filed May 13, 2026. Title: "Plugin tool execution always 502s — registerPluginTools drops the plugin UUID dbId". Finding #1 with the patch diff inlined as the primary body; Findings #2 and #3 mentioned at the bottom as separate concerns the maintainers can split out if they prefer.
 
 Repository: <https://github.com/paperclipai/paperclip>
 
