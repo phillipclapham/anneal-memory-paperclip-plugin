@@ -7,13 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned for v0.1.0
+(no pending work tracked.)
 
-- `autoRecordEvents` config flag wired (currently declared but no `onEvent` handler).
-- `validateConfig` RPC implementation — bad config surfaces at plugin install, not first tool call.
-- Per-agent MCP responsiveness probe in `onHealth` (currently shallow — returns "ok" whenever bridge pool exists).
-- Retry/queue policy for tool calls landing during MCP child auto-restart window.
-- Re-validation against Paperclip releases beyond 2026.512.0.
+## [0.1.0] - 2026-05-14
+
+First code feature release after v0.0.1 (initial ship) and v0.0.2 (docs
+polish). Closes the four code gaps named in v0.0.1's "Other boundaries"
+Known Limitations section. Built against `@paperclipai/plugin-sdk`
+`2026.513.0` (one minor version newer than v0.0.1/v0.0.2's `2026.512.0`);
+typecheck clean against the new SDK surface, no semantic-breaking
+changes detected in the diff.
+
+### Added
+
+- **`autoRecordEvents` config wired** (was declared in v0.0.1 with no
+  handler). When enabled, the plugin subscribes to a curated default
+  allowlist of 8 observation-class Paperclip events
+  (`issue.created`, `issue.updated`, `issue.comment.created`,
+  `agent.run.{started,finished,failed}`, `approval.decided`,
+  `budget.incident.opened`) and auto-records them as `observation`
+  episodes on the actor agent's bridge. Config accepts:
+  - `false` (default) — explicit-only recording
+  - `true` — curated 8-event allowlist
+  - `string[]` — explicit list; `["*"]` opts into the full 32-event firehose;
+    unknown event types are kept for forward-compat with a warning.
+
+  Auto-recorded episodes carry `source: "auto-event:<eventType>"` to
+  distinguish them from agent-issued `record` calls in recall queries.
+  Events without an agent actor (system / user / no-actor) are skipped
+  silently (debug-logged). Event subscription is capability-gated: if
+  `events.subscribe` is denied or the SDK surface shifts, the plugin
+  warn-logs and continues functioning for explicit `record` / `recall`
+  without ambient observation.
+
+- **`onValidateConfig` RPC implementation.** Bad config now surfaces at
+  plugin install, config-save, and "Test Connection" instead of 20+
+  seconds into the first tool call. Pure shape check (types + unknown
+  keys + `autoRecordEvents` enum validation against `PLUGIN_EVENT_TYPES`)
+  composed with filesystem-aware checks (`mcpCommand` absolute-path
+  executability via `fs.access(X_OK)`, `storeBasePath` directory +
+  writability). Returns SDK-shape `{ ok, errors?, warnings? }`.
+
+- **`onHealth` per-agent responsiveness probe.** Replaces the v0.0.1
+  "pool exists ⇒ ok" check that lied about real bridge state. Returns
+  the SDK's 3-state enum (`ok | degraded | error`) with `details.perAgent`
+  carrying state-per-bridge (`active | idle | unresponsive | dead`).
+  Recently-active bridges (default 5-minute idle threshold) are accepted
+  without re-probing; quiescent bridges are probed via cheap `tools/list`
+  RPC; mismatch between process liveness and MCP responsiveness now
+  surfaces honestly. `BridgePool.health()` returns a typed report
+  consumable both inside the worker (for `onHealth`) and externally.
+
+- **Retry/queue during MCP child auto-restart window.** Tool calls
+  landing between an MCP child crash and successful auto-restart no
+  longer drop on the floor. `sendRequest` now blocks awaiting `start()`
+  (idempotent with the existing exit-handler-scheduled retry) when
+  child is null and the bridge is not exhausted. After max consecutive
+  failed restarts the new `exhausted` state is terminal: calls reject
+  loudly with `"auto-restart attempts exhausted (<max>)"` instead of
+  attempting another spawn. Successful recovery clears the flag for
+  future crash cycles. Worst-case unmitigated wait at defaults ≈ 7s
+  (1 + 2 + 4 backoff), inside the 30s per-call timeout.
+
+### Changed
+
+- **`@paperclipai/plugin-sdk` bumped `2026.512.0` → `2026.513.0`** (pinned
+  exact). SDK diff between versions is purely additive (one new internal
+  helper `isWorkerEntrypoint`); no breaking changes to the worker-facing
+  surface (`PluginContext`, `definePlugin`, `PluginHealthDiagnostics`,
+  `PluginConfigValidationResult`, `PLUGIN_EVENT_TYPES` all unchanged).
+
+- **Smoke test suite expanded 13/13 → 46/46.** 15 new tests for
+  `validateConfigShape` semantic surface; 4 new tests for
+  `BridgePool.health()` state-transition coverage (empty / two-active /
+  idle-probe / one-dead); 8 new tests for `resolveAllowlist` +
+  `buildAutoRecordHandler` end-to-end (synthetic event → episode landed
+  in agent's bridge; non-agent actors skipped; source-field discipline
+  enforced; firehose marker `*`); 3 new tests for the restart-window
+  block-and-recover + exhausted-state paths.
+
+### Known boundaries carrying forward
+
+- Full live-runtime re-validation against Paperclip `2026.513.0` host is
+  NOT in scope for v0.1.0. Plugin compiles and smokes against SDK
+  `2026.513.0` cleanly; the empirical receipts from v0.0.1's
+  B1/B2/B3/B1.5 + ANN-13 v2 4-wrap load tests against Paperclip
+  `2026.512.0` + Finding #1 manual patch remain the production
+  reference. Operators upgrading their Paperclip host to `2026.513.0+`
+  should re-run the agent smoke harness; if `executeTool` still 502s,
+  Finding #1 patch remains needed (no maintainer movement on
+  paperclipai/paperclip#5916 as of 2026-05-14T20:00 EDT).
+
+- Auto-record skips events without an agent actor by design — company /
+  system / approval events with no `actorType === "agent"` actor are
+  silently dropped (debug-logged). v0.2+ may add a synthetic
+  company-level bridge for events that aren't agent-attributable.
 
 ## [0.0.2] - 2026-05-13
 

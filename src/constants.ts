@@ -8,7 +8,7 @@
  */
 
 export const PLUGIN_ID = "anneal-memory";
-export const PLUGIN_VERSION = "0.0.1";
+export const PLUGIN_VERSION = "0.1.0";
 
 /**
  * Tool names match the six tools exposed by the anneal-memory Python MCP

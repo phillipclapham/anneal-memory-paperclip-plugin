@@ -106,6 +106,18 @@ export class McpBridge {
   private startupPromise: Promise<void> | null = null;
   private intentionalShutdown = false;
   private restartAttempts = 0;
+  // Discrete flag set by the exit handler when it gives up scheduling
+  // further auto-restarts (either because max was exhausted via repeated
+  // crashes, or because max was 0 and the very first crash counted as
+  // terminal). Cleared on the next successful start. Distinct from
+  // restartAttempts because successful restarts reset the counter — the
+  // counter alone can't tell "fresh bridge" from "exhausted bridge with
+  // max=0" without help.
+  private exhausted = false;
+  // Wall-clock ms of the most recent successful response; 0 if never used.
+  // Drives the idle-vs-stale discriminator in the health probe so the host
+  // doesn't pay an MCP round-trip on every bridge for every poll.
+  private lastActivityAt = 0;
   private readonly logger: BridgeLogger;
   private readonly defaultCallTimeoutMs: number;
   private readonly maxRestartAttempts: number;
@@ -126,8 +138,18 @@ export class McpBridge {
   /**
    * Start the MCP child process and run the MCP `initialize` handshake.
    * Idempotent — multiple calls return the same promise.
+   *
+   * Refuses to start an exhausted bridge. Exhausted is a terminal state:
+   * once the exit handler gives up scheduling auto-restarts (consecutive
+   * spawn failures hit the limit), the bridge stays dead. Callers that
+   * want to revive must construct a new bridge.
    */
   async start(): Promise<void> {
+    if (this.exhausted) {
+      throw new Error(
+        `MCP bridge dead: auto-restart attempts exhausted (${this.maxRestartAttempts})`,
+      );
+    }
     if (this.startupPromise) return this.startupPromise;
     this.startupPromise = this.doStart();
     return this.startupPromise;
@@ -170,7 +192,11 @@ export class McpBridge {
       this.initialized = false;
       this.startupPromise = null;
 
-      if (!wasIntentional && this.restartAttempts < this.maxRestartAttempts) {
+      if (
+        !wasIntentional &&
+        !this.exhausted &&
+        this.restartAttempts < this.maxRestartAttempts
+      ) {
         this.restartAttempts++;
         const backoff = this.restartBackoffMs * Math.pow(2, this.restartAttempts - 1);
         this.logger.info("scheduling MCP child auto-restart", {
@@ -179,7 +205,9 @@ export class McpBridge {
           backoffMs: backoff,
         });
         setTimeout(() => {
-          if (!this.intentionalShutdown) {
+          // Re-check at fire time — between schedule and fire the bridge
+          // could have been stopped or marked exhausted by another path.
+          if (!this.intentionalShutdown && !this.exhausted) {
             this.start().catch((err) => {
               this.logger.error("MCP child auto-restart failed", {
                 attempt: this.restartAttempts,
@@ -189,8 +217,10 @@ export class McpBridge {
           }
         }, backoff).unref();
       } else if (!wasIntentional) {
+        this.exhausted = true;
         this.logger.error("MCP child exhausted restart attempts; bridge dead", {
           attempts: this.restartAttempts,
+          maxAttempts: this.maxRestartAttempts,
         });
       }
     });
@@ -220,13 +250,14 @@ export class McpBridge {
         capabilities: {},
         clientInfo: {
           name: "anneal-memory-paperclip-plugin",
-          version: "0.0.1",
+          version: "0.1.0",
         },
       },
       this.defaultCallTimeoutMs,
     );
     this.initialized = true;
     this.restartAttempts = 0; // successful start resets the backoff counter
+    this.exhausted = false; // recovery clears any prior exhaustion
   }
 
   /**
@@ -292,6 +323,43 @@ export class McpBridge {
     });
   }
 
+  /** ms-since-epoch of the most recent response from the child, or 0 if never. */
+  getLastActivityAt(): number {
+    return this.lastActivityAt;
+  }
+
+  /** True when the child process is spawned and has completed the MCP handshake. */
+  isAlive(): boolean {
+    return this.child !== null && this.initialized;
+  }
+
+  /**
+   * Health probe — issue a cheap `tools/list` against the child and resolve
+   * with a structured status. Used by BridgePool.health() to differentiate
+   * "process alive but MCP layer wedged" from "fully responsive."
+   *
+   * Returns { status: "ok" } on a clean tools/list response, { status: "error" }
+   * on timeout or RPC failure. Caller is responsible for the idle-vs-probe
+   * discrimination — this method always makes a real call.
+   */
+  async probe(timeoutMs = 2000): Promise<{ status: "ok" | "error"; latencyMs: number; error?: string }> {
+    // Probe SEMANTIC is "is the bridge currently responsive?" — not "wake
+    // it up." sendRequest's restart-window auto-start would silently
+    // resurrect a dead bridge here, which would lie to the health probe.
+    // Guard explicitly so probe reports the true state.
+    if (!this.isAlive()) {
+      return { status: "error", latencyMs: 0, error: "bridge not alive" };
+    }
+    const t0 = Date.now();
+    try {
+      await this.sendRequest("tools/list", {}, timeoutMs);
+      return { status: "ok", latencyMs: Date.now() - t0 };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { status: "error", latencyMs: Date.now() - t0, error: message };
+    }
+  }
+
   /**
    * Best-effort SYNCHRONOUS cleanup for process exit handlers
    * (`process.on('exit', ...)` which cannot await). Sends SIGKILL
@@ -309,15 +377,34 @@ export class McpBridge {
     }
   }
 
-  private sendRequest(
+  private async sendRequest(
     method: string,
     params: Record<string, unknown>,
     timeoutMs: number,
   ): Promise<unknown> {
-    const child = this.child;
-    if (!child) {
-      return Promise.reject(new Error("MCP child process is not running"));
+    // Restart-window handling: when the child has exited but auto-restart
+    // hasn't completed yet, block the caller until either restart succeeds
+    // OR maxRestartAttempts is exhausted. Prior behavior was to reject
+    // immediately, which dropped every concurrent call landing in the
+    // window. Option A from v0.1.0 design — block, don't blind-retry,
+    // because anneal-memory tools aren't all idempotent (e.g. record).
+    if (!this.child) {
+      if (this.intentionalShutdown) {
+        throw new Error("MCP bridge is shutting down");
+      }
+      if (this.exhausted) {
+        throw new Error(
+          `MCP bridge dead: auto-restart attempts exhausted (${this.maxRestartAttempts})`,
+        );
+      }
+      // start() is idempotent — returns in-progress restart promise if one
+      // is already scheduled, or initiates a fresh start if not.
+      await this.start();
+      if (!this.child) {
+        throw new Error("MCP bridge unavailable after restart attempt");
+      }
     }
+    const child = this.child;
     const id = this.nextId++;
     const req: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
     return new Promise<unknown>((resolve, reject) => {
@@ -339,6 +426,38 @@ export class McpBridge {
     });
   }
 
+  /**
+   * **Test-only.** Simulate an unintentional child crash so tests can exercise
+   * the auto-restart + sendRequest-restart-window code path without racing
+   * the OS scheduler. Sends SIGKILL to the child WITHOUT setting
+   * `intentionalShutdown`, so the exit handler treats it as a crash and
+   * schedules auto-restart per the configured backoff.
+   *
+   * Pass `{ markExhausted: true }` to also mark the bridge as exhausted
+   * synchronously, bypassing the exit-handler increment dance. Useful for
+   * tests of the exhausted-path in sendRequest without depending on a
+   * bad-binary spawn-failure race.
+   *
+   * Not part of the public plugin contract; do not call from production code.
+   */
+  _simulateCrashForTest(options?: { markExhausted?: boolean }): void {
+    if (options?.markExhausted) {
+      this.exhausted = true;
+    }
+    if (this.child) {
+      try {
+        this.child.kill("SIGKILL");
+      } catch {
+        /* already dead */
+      }
+    }
+  }
+
+  /** **Test-only.** Inspect the exhausted flag. */
+  _isExhaustedForTest(): boolean {
+    return this.exhausted;
+  }
+
   private handleStdout(chunk: string): void {
     this.stdoutBuffer += chunk;
     let newlineIdx: number;
@@ -349,6 +468,10 @@ export class McpBridge {
       try {
         const msg = JSON.parse(line) as JsonRpcResponse;
         if (typeof msg.id !== "number") continue;
+        // Any well-formed response from the child counts as activity.
+        // Tool-level errors arrive as successful JSON-RPC results with
+        // isError=true, but the child is alive either way.
+        this.lastActivityAt = Date.now();
         const pending = this.pending.get(msg.id);
         if (!pending) continue;
         this.pending.delete(msg.id);
@@ -381,6 +504,31 @@ export class McpBridge {
     }
     this.pending.clear();
   }
+}
+
+/**
+ * Per-bridge health entry returned by BridgePool.health().
+ *
+ * State semantics:
+ * - `active`     bridge is alive and served a call within the idle threshold
+ *                (no probe issued; recent activity is the liveness signal)
+ * - `idle`       bridge is alive, no recent activity, probe succeeded
+ * - `unresponsive` bridge is alive but probe failed (process up, MCP wedged)
+ * - `dead`       bridge is not alive (child crashed, auto-restart exhausted,
+ *                or never started)
+ */
+export interface BridgeHealthEntry {
+  agentId: string;
+  state: "active" | "idle" | "unresponsive" | "dead";
+  lastActivityAt: number;
+  probeLatencyMs?: number;
+  error?: string;
+}
+
+export interface BridgeHealthReport {
+  status: "ok" | "degraded" | "error";
+  bridgeCount: number;
+  perAgent: BridgeHealthEntry[];
 }
 
 /**
@@ -420,6 +568,56 @@ export class BridgePool {
     const stops = Array.from(this.bridges.values()).map((b) => b.stop());
     this.bridges.clear();
     await Promise.allSettled(stops);
+  }
+
+  /**
+   * Aggregate per-agent liveness into a single health report the worker can
+   * surface to Paperclip's plugin health dashboard.
+   *
+   * Idle bridges (alive but no recent activity) are probed cheaply via
+   * `tools/list` so we don't pay the round-trip on every poll for every
+   * bridge — only bridges that have been quiet long enough to be suspect.
+   * Active bridges (recent activity) are accepted without re-probing.
+   *
+   * @param idleThresholdMs  bridges silent for longer than this are probed (default 5min)
+   * @param probeTimeoutMs   timeout for the tools/list probe call (default 2s)
+   */
+  async health(
+    idleThresholdMs = 5 * 60 * 1000,
+    probeTimeoutMs = 2_000,
+  ): Promise<BridgeHealthReport> {
+    const now = Date.now();
+    const entries = Array.from(this.bridges.entries());
+    const perAgent: BridgeHealthEntry[] = await Promise.all(
+      entries.map(async ([agentId, bridge]): Promise<BridgeHealthEntry> => {
+        if (!bridge.isAlive()) {
+          return { agentId, state: "dead", lastActivityAt: bridge.getLastActivityAt() };
+        }
+        const lastActivityAt = bridge.getLastActivityAt();
+        const sinceLast = now - lastActivityAt;
+        if (lastActivityAt > 0 && sinceLast < idleThresholdMs) {
+          return { agentId, state: "active", lastActivityAt };
+        }
+        const probe = await bridge.probe(probeTimeoutMs);
+        if (probe.status === "ok") {
+          return { agentId, state: "idle", lastActivityAt, probeLatencyMs: probe.latencyMs };
+        }
+        return {
+          agentId,
+          state: "unresponsive",
+          lastActivityAt,
+          probeLatencyMs: probe.latencyMs,
+          error: probe.error,
+        };
+      }),
+    );
+    const okCount = perAgent.filter((e) => e.state === "active" || e.state === "idle").length;
+    const errCount = perAgent.length - okCount;
+    let status: BridgeHealthReport["status"];
+    if (perAgent.length === 0 || errCount === 0) status = "ok";
+    else if (okCount === 0) status = "error";
+    else status = "degraded";
+    return { status, bridgeCount: perAgent.length, perAgent };
   }
 
   /**

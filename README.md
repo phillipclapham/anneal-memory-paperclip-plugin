@@ -2,7 +2,7 @@
 
 First-class four-layer memory for [Paperclip](https://github.com/paperclipai/paperclip) agents, wrapping the [anneal-memory](https://github.com/phillipclapham/anneal-memory) Python MCP server.
 
-**Status:** v0.0.1 — full stack end-to-end validated against Paperclip 2026.512.0 on May 13, 2026 across 4 named load tests (B1/B2/B3/B1.5) plus an ANN-13 v2 4-wrap sustained-load sequence demonstrating immune-system demotion and closed-loop learning in production (see [In-production validation](#in-production-validation)). 5 upstream Paperclip findings filed day-one (see [Filed upstream](#filed-upstream)). Working but requires an upstream Paperclip patch + a one-time agent-instructions edit. See [Known Limitations](#known-limitations) before installing.
+**Status:** v0.1.0 — code feature release built against `@paperclipai/plugin-sdk` `2026.513.0`. Closes the four code gaps from v0.0.1 (`autoRecordEvents` wired, `onValidateConfig` implemented, `onHealth` real per-agent probe, restart-window retry/queue policy). Smoke test suite expanded 13/13 → 46/46. The v0.0.1 + v0.0.2 empirical receipts against Paperclip `2026.512.0` (B1/B2/B3/B1.5 + ANN-13 v2 4-wrap sustained-load — immune-system demotion + closed-loop learning in production; see [In-production validation](#in-production-validation)) remain the runtime reference. 5 upstream Paperclip findings filed day-one (see [Filed upstream](#filed-upstream)). Working but requires an upstream Paperclip patch + a one-time agent-instructions edit. See [Known Limitations](#known-limitations) before installing.
 
 ---
 
@@ -241,7 +241,7 @@ auto-discovery for `claude_local`.
 |---|---|---|
 | `mcpCommand` | `anneal-memory` | Path / command name for the Python MCP server executable. Override for `uvx`, `pipx`, or virtualenv installs. |
 | `storeBasePath` | `~/.paperclip/data/plugins/anneal-memory/stores` | Base directory for per-agent SQLite stores. Each Paperclip agent gets a subdirectory: `<storeBasePath>/<agentId>/memory.db`. |
-| `autoRecordEvents` | `false` | (v0.0.1: declared but not yet implemented — see [Known Limitations](#known-limitations).) When implemented, will auto-record Paperclip events as `observation` episodes. |
+| `autoRecordEvents` | `false` | Auto-record Paperclip domain events as `observation` episodes on the actor agent's bridge. `false` (default) = explicit-only. `true` = curated 8-event allowlist (`issue.created`, `issue.updated`, `issue.comment.created`, `agent.run.{started,finished,failed}`, `approval.decided`, `budget.incident.opened`). `string[]` = explicit allowlist; `["*"]` opts into the full 32-event firehose. Auto-recorded episodes carry `source: "auto-event:<eventType>"` to distinguish from agent-issued `record` calls. Events without an agent actor are skipped silently. |
 
 ## Teaching Your Agent About anneal-memory
 
@@ -331,21 +331,35 @@ scale is the v0.1 validation gate. If you surface specific failure
 modes, please open an issue with reproduction steps — that data IS
 the v0.1 spec.
 
-### Other v0.0.1 boundaries (less critical, tracked for v0.1)
+### v0.0.1 boundaries closed in v0.1.0
 
-1. **`autoRecordEvents` config flag is declared but not yet wired** — when
-   set, no `onEvent` handler is currently registered. Manifest field will be
-   honored in v0.1.
-2. **`onHealth` is shallow** — returns "ok" whenever the bridge pool exists.
-   Does not probe per-agent MCP children for actual responsiveness.
-3. **`validateConfig` RPC is not implemented** — bad config surfaces at first
-   tool call instead of plugin install.
-4. **Paperclip version pinned exact** to `2026.512.0`. Plugin will need
-   re-validation against subsequent Paperclip releases (CalVer).
-5. **No retry policy on the first tool call after MCP child auto-restart** —
-   the auto-restart mechanism is in place (default 3 attempts, exponential
-   backoff from 1s) but tool calls that happen during the restart window
-   will fail. v0.1 will queue calls during recovery windows.
+1. ~~`autoRecordEvents` declared but not wired.~~ **Closed in v0.1.0** —
+   capability-gated subscription with curated default allowlist + source
+   field discipline + graceful degrade.
+2. ~~`onHealth` shallow.~~ **Closed in v0.1.0** — real per-agent
+   responsiveness probe with 3-state report; idle bridges skip the probe;
+   liveness ≠ responsiveness now surfaces honestly.
+3. ~~`validateConfig` RPC not implemented.~~ **Closed in v0.1.0** —
+   semantic + filesystem-aware config validation at install / save /
+   Test Connection.
+4. ~~No retry on tool calls during MCP child auto-restart window.~~
+   **Closed in v0.1.0** — `sendRequest` blocks awaiting recovery; only
+   rejects loudly when the new `exhausted` terminal state is hit.
+
+### Boundaries carrying into v0.1+
+
+1. **Paperclip live-runtime re-validation against `2026.513.0` not in
+   scope for v0.1.0.** Plugin compiles + smokes against SDK `2026.513.0`
+   cleanly (typecheck + 46/46 smoke), but the empirical B1/B2/B3/B1.5 +
+   ANN-13 v2 receipts in this README are against Paperclip `2026.512.0`
+   host + Finding #1 manual patch. Operators on `2026.513.0+` should
+   re-run the agent smoke harness; if `executeTool` still 502s,
+   Finding #1 patch remains needed (no maintainer movement on
+   `paperclipai/paperclip#5916` as of 2026-05-14 EDT).
+2. **`autoRecordEvents` skips non-agent actors.** Company / system /
+   approval events with no `actorType === "agent"` actor are silently
+   dropped (debug-logged). v0.2+ may add a synthetic company-level
+   bridge for events that aren't agent-attributable.
 
 ## Filed upstream
 
