@@ -2,6 +2,31 @@
 
 First-class four-layer memory for [Paperclip](https://github.com/paperclipai/paperclip) agents, wrapping the [anneal-memory](https://github.com/phillipclapham/anneal-memory) Python MCP server.
 
+---
+
+## ⛔ Maintenance mode — terminal at v0.0.2 (May 14, 2026)
+
+**This plugin is no longer under active development.** v0.0.2 on npm continues to work for whoever wants it, with the manual upstream patch documented below.
+
+**Why:**
+- 5 high-quality bug reports filed against `paperclipai/paperclip` (#5916, #5932, #5933, #5935, #5937) received zero maintainer engagement in 24+ hours while Paperclip shipped two new releases (`2026.513.0` stable, `2026.514.0-canary.1`). Signal: Paperclip is running an internal roadmap, not a community-issue triage process. Building distribution-surface plugins against a closed-vision framework has a low return ceiling.
+- Paperclip native memory is the structural substitute on a Q3-Q4 2026 timeframe. Plugin-shape memory becomes legacy when that ships.
+- The generally-stronger distribution surface for anneal-memory's four-layer architecture is the **standalone Python MCP server** ([`anneal-memory` on PyPI](https://pypi.org/project/anneal-memory/)). It wires into any harness — Claude Code, OpenCode, custom — not just Paperclip.
+
+**For operators who want anneal-memory in their agent stack:**
+
+```bash
+pip install anneal-memory
+```
+
+Then wire its MCP server into your harness directly. No Paperclip-host patches required. Full documentation at [github.com/phillipclapham/anneal-memory](https://github.com/phillipclapham/anneal-memory).
+
+**Design exploration preserved:** The `v0.1.0-archived` branch contains 28 hours of design work (autoRecordEvents wiring, validateConfig RPC, onHealth probe, retry/queue policy) and 46/46 passing smoke tests against SDK `2026.513.0`. Never released; preserved for anyone investigating the design space. Commit log explains the decision chain.
+
+**Upstream bug filings remain open** — they document real Paperclip-runtime issues independent of this plugin's status.
+
+---
+
 **Status:** v0.0.1 — full stack end-to-end validated against Paperclip 2026.512.0 on May 13, 2026 across 4 named load tests (B1/B2/B3/B1.5) plus an ANN-13 v2 4-wrap sustained-load sequence demonstrating immune-system demotion and closed-loop learning in production (see [In-production validation](#in-production-validation)). 5 upstream Paperclip findings filed day-one (see [Filed upstream](#filed-upstream)). Working but requires an upstream Paperclip patch + a one-time agent-instructions edit. See [Known Limitations](#known-limitations) before installing.
 
 ---
